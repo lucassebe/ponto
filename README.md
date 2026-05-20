@@ -2,6 +2,8 @@
 
 Automaçãozinha feita para salvar todos vocês de mandar documento pro papai assinar no fim do mês.
 Podem ficar tranquilos que já pensei em tudo.
+
+
 ![yoda2](https://media3.giphy.com/media/v1.Y2lkPTc5MGI3NjExN3V3d3c4N2hkaWVlOWZpdGk1bGZ1b2N6MHg4cHR3MW51ODYxNDg1ZiZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/3ornk03njkdi5mNKJG/giphy.gif)
 
 ## O que ele faz?
@@ -122,6 +124,8 @@ Cada um agenda como quiser:
 - Windows Task Scheduler
 - cron no Linux
 - fé em Jesus Cristo
+
+
 ![jesus](https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ2lubm9haGppOWVrMzdzeTV5bm45N2NkNmdvYzd4NzNrYzkzMjRlciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/yNF0XKi2ZLuow/giphy.gif)
 
 Aqui usei Task Scheduler no Windows. Só deixar o pc ligado que ele faz. 
@@ -172,4 +176,6 @@ e manda no Discord também.
 # 🤝 Observações
 
 Usem com sabedoria 
+
+
 ![yoda](https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExMTJrM21qbDhpaDhybGJzYnkwdGRqZ3F4dW8ydjk1Z29obWEyeGt6YyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/26tPgV8ceZTSxH9zG/giphy.gif)
