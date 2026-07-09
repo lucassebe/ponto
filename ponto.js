@@ -9,10 +9,46 @@ const SENHA = process.env.SENHA;
 const WEBHOOK_URL = process.env.WEBHOOK_URL;
 const baseLat = parseFloat(process.env.BASE_LAT);
 const baseLng = parseFloat(process.env.BASE_LON);
-const latitude = baseLat + (Math.random() - 0.5) * 0.0001;
-const longitude = baseLng + (Math.random() - 0.5) * 0.0001;
+const pontoIndex = parseInt(process.env.PONTO_INDEX || "0");
+
+function tinyVariation(base) {
+  const variation = (Math.floor(Math.random() * 5) - 2) * 0.000001;
+
+  return Number((base + variation).toFixed(7));
+}
+
+const randomPoint = Math.floor(Math.random() * 4);
+
+const locations = [];
+
+for (let i = 0; i < 4; i++) {
+  if (i === randomPoint) {
+    locations.push({
+      latitude: tinyVariation(baseLat),
+      longitude: tinyVariation(baseLng),
+    });
+  } else {
+    locations.push({
+      latitude: baseLat,
+      longitude: baseLng,
+    });
+  }
+}
+
+const latitude = locations[pontoIndex].latitude;
+const longitude = locations[pontoIndex].longitude;
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 (async () => {
+  const randomSeconds = Math.floor(Math.random() * 45) + 20;
+  const executionTime = new Date(Date.now() + randomSeconds * 1000);
+
+  console.log(`⏳ Início adiado em ${randomSeconds}s`);
+
+  console.log(`🕒 Horário previsto: ${executionTime.toLocaleString("pt-BR")}`);
+
+  await delay(randomSeconds * 1000);
+
   if (await isHoliday()) {
     console.log("Fim de semana ou feriado. Encerrando.");
 
@@ -30,6 +66,32 @@ const longitude = baseLng + (Math.random() - 0.5) * 0.0001;
     },
     permissions: ["geolocation"],
     locale: "pt-BR",
+
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+
+    viewport: {
+      width: 1366,
+      height: 768,
+    },
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+
+    Object.defineProperty(navigator, "platform", {
+      get: () => "Win32",
+    });
+
+    Object.defineProperty(navigator, "vendor", {
+      get: () => "Google Inc.",
+    });
+
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["pt-BR", "pt"],
+    });
   });
 
   const page = await context.newPage();
