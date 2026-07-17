@@ -39,6 +39,17 @@ const latitude = locations[pontoIndex].latitude;
 const longitude = locations[pontoIndex].longitude;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isExecutionTimeValid() {
+  const now = new Date();
+
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+
+  const validTimes = [8, 12, 13, 17];
+
+  return validTimes.includes(hour) && minute < 3;
+}
+
 (async () => {
   const randomSeconds = Math.floor(Math.random() * 45) + 20;
   const executionTime = new Date(Date.now() + randomSeconds * 1000);
@@ -48,6 +59,34 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   console.log(`🕒 Horário previsto: ${executionTime.toLocaleString("pt-BR")}`);
 
   await delay(randomSeconds * 1000);
+
+  if (!isExecutionTimeValid()) {
+    const now = new Date();
+
+    const message = `⚠️ Ponto NÃO registrado.
+
+Execução fora do horário permitido.
+
+Horário atual: ${now.toLocaleString("pt-BR")}`;
+
+    console.log(message);
+
+    try {
+      await fetch(WEBHOOK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: message,
+        }),
+      });
+    } catch (err) {
+      console.error("Erro ao enviar webhook:", err);
+    }
+
+    return;
+  }
 
   if (await isHoliday()) {
     console.log("Fim de semana ou feriado. Encerrando.");
