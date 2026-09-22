@@ -45,6 +45,7 @@ const CONFIRM_RETRY_MIN = parseInt(process.env.CONFIRM_RETRY_MIN || "3");
 const CONFIRM_MAX_ATTEMPTS = parseInt(process.env.CONFIRM_MAX_ATTEMPTS || "3");
 const DAILY_PONTO_LIMIT = parseInt(process.env.DAILY_PONTO_LIMIT || "4");
 const CONFIRM_EMOJI = "✅";
+const CANCEL_EMOJI = "❌";
 const SUCCESS_PREFIX = "✅ Ponto registrado";
 
 async function discordApi(endpoint, options = {}) {
@@ -87,9 +88,20 @@ async function countTodaySuccesses() {
   ).length;
 }
 
+async function hasHumanReaction(messageId, emoji) {
+  const response = await discordApi(
+    `/channels/${DISCORD_CHANNEL_ID}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`,
+  );
+
+  const users = await response.json();
+
+  return Array.isArray(users) && users.some((user) => !user.bot);
+}
+
 // Pergunta no Discord se pode bater o ponto. Re-pergunta a cada
 // CONFIRM_RETRY_MIN minutos, até CONFIRM_MAX_ATTEMPTS vezes. Retorna true
-// assim que alguém reagir, false se ninguém confirmar em nenhuma tentativa.
+// assim que alguém reagir com ✅. Retorna false na hora se alguém reagir com
+// ❌, ou depois de esgotar as tentativas sem resposta.
 async function waitForDiscordConfirmation() {
   for (let attempt = 1; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
     const askResponse = await discordApi(
@@ -97,7 +109,7 @@ async function waitForDiscordConfirmation() {
       {
         method: "POST",
         body: JSON.stringify({
-          content: `🕒 Bater ponto agora? Reaja com ${CONFIRM_EMOJI} em até ${CONFIRM_RETRY_MIN} min pra confirmar. (tentativa ${attempt}/${CONFIRM_MAX_ATTEMPTS})`,
+          content: `🕒 Bater ponto agora? Reaja com ${CONFIRM_EMOJI} pra confirmar ou ${CANCEL_EMOJI} pra cancelar. Expira em ${CONFIRM_RETRY_MIN} min. (tentativa ${attempt}/${CONFIRM_MAX_ATTEMPTS})`,
         }),
       },
     );
@@ -109,18 +121,21 @@ async function waitForDiscordConfirmation() {
       { method: "PUT" },
     );
 
+    await discordApi(
+      `/channels/${DISCORD_CHANNEL_ID}/messages/${askMessage.id}/reactions/${encodeURIComponent(CANCEL_EMOJI)}/@me`,
+      { method: "PUT" },
+    );
+
     const deadline = Date.now() + CONFIRM_RETRY_MIN * 60 * 1000;
 
     while (Date.now() < deadline) {
       await delay(15000);
 
-      const reactionsResponse = await discordApi(
-        `/channels/${DISCORD_CHANNEL_ID}/messages/${askMessage.id}/reactions/${encodeURIComponent(CONFIRM_EMOJI)}`,
-      );
+      if (await hasHumanReaction(askMessage.id, CANCEL_EMOJI)) {
+        return false;
+      }
 
-      const users = await reactionsResponse.json();
-
-      if (users.some((user) => !user.bot)) {
+      if (await hasHumanReaction(askMessage.id, CONFIRM_EMOJI)) {
         return true;
       }
     }
