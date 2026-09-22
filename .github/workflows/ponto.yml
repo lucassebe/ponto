@@ -1,0 +1,32 @@
+name: Bater ponto
+
+on:
+  schedule:
+    # Horários de Brasília (UTC-3): 8h, 12h, 13h, 14h, 17h, 18h, seg-sex
+    - cron: "0 11,15,16,17,20,21 * * 1-5"
+  workflow_dispatch: {}
+
+jobs:
+  ponto:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      - run: node ponto.js
+        env:
+          CPF: ${{ secrets.CPF }}
+          SENHA: ${{ secrets.SENHA }}
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          BASE_LAT: ${{ secrets.BASE_LAT }}
+          BASE_LON: ${{ secrets.BASE_LON }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}

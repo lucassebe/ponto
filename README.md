@@ -108,6 +108,35 @@ WEBHOOK_URL=
 
 ---
 
+# 🤖 Bot Discord (confirmação antes de bater)
+
+Antes de bater o ponto, o script manda mensagem no canal pedindo confirmação
+(reagir com ✅). Se ninguém reagir, pergunta de novo a cada `CONFIRM_RETRY_MIN`
+minutos, até `CONFIRM_MAX_ATTEMPTS` vezes. Se já bateu `DAILY_PONTO_LIMIT`
+pontos hoje (olhando o próprio histórico do canal), nem pergunta mais.
+
+Precisa de um bot (webhook sozinho não lê reação):
+
+- Discord Developer Portal → New Application
+- Bot → Reset Token → copia o token
+- OAuth2 → URL Generator → scope `bot` → permissões `Send Messages`,
+  `Read Message History`, `Add Reactions` → abre o link gerado e convida
+  o bot pro teu servidor
+- Pega o ID do canal (Discord em modo desenvolvedor → clique direito no
+  canal → Copy ID)
+
+Preenche no `.env`:
+
+```env
+DISCORD_BOT_TOKEN=
+DISCORD_CHANNEL_ID=
+CONFIRM_RETRY_MIN=3
+CONFIRM_MAX_ATTEMPTS=3
+DAILY_PONTO_LIMIT=4
+```
+
+---
+
 # ▶️ Rodando manualmente
 
 ```bash
@@ -118,17 +147,26 @@ node ponto.js
 
 # 🖥️ Agendamento
 
-Se vira 😭
+Roda via GitHub Actions, não precisa de PC ligado.
 
-Cada um agenda como quiser:
-- Windows Task Scheduler
-- cron no Linux
-- fé em Jesus Cristo
+Cadastra os secrets do repositório (Settings → Secrets and variables →
+Actions → New repository secret): `CPF`, `SENHA`, `WEBHOOK_URL`,
+`BASE_LAT`, `BASE_LON`, `DISCORD_BOT_TOKEN`, `DISCORD_CHANNEL_ID`.
 
+Com `gh` CLI instalado e logado, dá pra subir direto do `.env`:
+
+```bash
+gh secret set -f .env
+```
+
+O cron já está em `.github/workflows/ponto.yml` (8h, 12h, 13h, 14h, 17h,
+18h, horário de Brasília, seg-sex). Pra testar sem esperar o horário, usa
+a aba Actions → Bater ponto → Run workflow.
+
+Antigamente era fé em Jesus Cristo:
 
 ![jesus](https://media4.giphy.com/media/v1.Y2lkPTc5MGI3NjExZ2lubm9haGppOWVrMzdzeTV5bm45N2NkNmdvYzd4NzNrYzkzMjRlciZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/yNF0XKi2ZLuow/giphy.gif)
 
-Aqui usei Task Scheduler no Windows. Só deixar o pc ligado que ele faz. 
 ---
 
 # ⚠️ IMPORTANTE

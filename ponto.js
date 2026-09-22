@@ -39,15 +39,94 @@ const latitude = locations[pontoIndex].latitude;
 const longitude = locations[pontoIndex].longitude;
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function isExecutionTimeValid() {
-  const now = new Date();
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
+const CONFIRM_RETRY_MIN = parseInt(process.env.CONFIRM_RETRY_MIN || "3");
+const CONFIRM_MAX_ATTEMPTS = parseInt(process.env.CONFIRM_MAX_ATTEMPTS || "3");
+const DAILY_PONTO_LIMIT = parseInt(process.env.DAILY_PONTO_LIMIT || "4");
+const CONFIRM_EMOJI = "✅";
+const SUCCESS_PREFIX = "✅ Ponto registrado";
 
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+async function discordApi(endpoint, options = {}) {
+  return fetch(`https://discord.com/api/v10${endpoint}`, {
+    ...options,
+    headers: {
+      Authorization: `Bot ${DISCORD_BOT_TOKEN}`,
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+}
 
-  const validTimes = [8, 12, 13, 17];
+function isToday(isoTimestamp) {
+  const opts = { timeZone: "America/Sao_Paulo" };
 
-  return validTimes.includes(hour) && minute < 3;
+  return (
+    new Date(isoTimestamp).toLocaleDateString("pt-BR", opts) ===
+    new Date().toLocaleDateString("pt-BR", opts)
+  );
+}
+
+// Conta quantos pontos já foram batidos hoje, olhando o histórico do canal.
+async function countTodaySuccesses() {
+  const response = await discordApi(
+    `/channels/${DISCORD_CHANNEL_ID}/messages?limit=50`,
+  );
+
+  const messages = await response.json();
+
+  if (!Array.isArray(messages)) {
+    return 0;
+  }
+
+  return messages.filter(
+    (msg) =>
+      msg.author?.bot &&
+      msg.content?.startsWith(SUCCESS_PREFIX) &&
+      isToday(msg.timestamp),
+  ).length;
+}
+
+// Pergunta no Discord se pode bater o ponto. Re-pergunta a cada
+// CONFIRM_RETRY_MIN minutos, até CONFIRM_MAX_ATTEMPTS vezes. Retorna true
+// assim que alguém reagir, false se ninguém confirmar em nenhuma tentativa.
+async function waitForDiscordConfirmation() {
+  for (let attempt = 1; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
+    const askResponse = await discordApi(
+      `/channels/${DISCORD_CHANNEL_ID}/messages`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          content: `🕒 Bater ponto agora? Reaja com ${CONFIRM_EMOJI} em até ${CONFIRM_RETRY_MIN} min pra confirmar. (tentativa ${attempt}/${CONFIRM_MAX_ATTEMPTS})`,
+        }),
+      },
+    );
+
+    const askMessage = await askResponse.json();
+
+    await discordApi(
+      `/channels/${DISCORD_CHANNEL_ID}/messages/${askMessage.id}/reactions/${encodeURIComponent(CONFIRM_EMOJI)}/@me`,
+      { method: "PUT" },
+    );
+
+    const deadline = Date.now() + CONFIRM_RETRY_MIN * 60 * 1000;
+
+    while (Date.now() < deadline) {
+      await delay(15000);
+
+      const reactionsResponse = await discordApi(
+        `/channels/${DISCORD_CHANNEL_ID}/messages/${askMessage.id}/reactions/${encodeURIComponent(CONFIRM_EMOJI)}`,
+      );
+
+      const users = await reactionsResponse.json();
+
+      if (users.some((user) => !user.bot)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 (async () => {
@@ -60,16 +139,24 @@ function isExecutionTimeValid() {
 
   await delay(randomSeconds * 1000);
 
-  if (!isExecutionTimeValid()) {
-    const now = new Date();
+  if (await isHoliday()) {
+    console.log("Fim de semana ou feriado. Encerrando.");
 
-    const message = `⚠️ Ponto NÃO registrado.
+    return;
+  }
 
-Execução fora do horário permitido.
+  if ((await countTodaySuccesses()) >= DAILY_PONTO_LIMIT) {
+    console.log(`Já bati ${DAILY_PONTO_LIMIT}x hoje. Encerrando.`);
 
-Horário atual: ${now.toLocaleString("pt-BR")}`;
+    return;
+  }
 
-    console.log(message);
+  console.log("Pedindo confirmação no Discord...");
+
+  const confirmed = await waitForDiscordConfirmation();
+
+  if (!confirmed) {
+    console.log("Não confirmado. Encerrando.");
 
     try {
       await fetch(WEBHOOK_URL, {
@@ -78,18 +165,12 @@ Horário atual: ${now.toLocaleString("pt-BR")}`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          content: message,
+          content: "⚠️ Ponto NÃO registrado. Confirmação não recebida a tempo.",
         }),
       });
     } catch (err) {
       console.error("Erro ao enviar webhook:", err);
     }
-
-    return;
-  }
-
-  if (await isHoliday()) {
-    console.log("Fim de semana ou feriado. Encerrando.");
 
     return;
   }
