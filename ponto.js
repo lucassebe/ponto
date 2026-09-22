@@ -99,9 +99,9 @@ async function hasHumanReaction(messageId, emoji) {
 }
 
 // Pergunta no Discord se pode bater o ponto. Re-pergunta a cada
-// CONFIRM_RETRY_MIN minutos, até CONFIRM_MAX_ATTEMPTS vezes. Retorna true
-// assim que alguém reagir com ✅. Retorna false na hora se alguém reagir com
-// ❌, ou depois de esgotar as tentativas sem resposta.
+// CONFIRM_RETRY_MIN minutos, até CONFIRM_MAX_ATTEMPTS vezes. Retorna
+// "confirmed" assim que alguém reagir com ✅, "cancelled" na hora se alguém
+// reagir com ❌, ou "timeout" depois de esgotar as tentativas sem resposta.
 async function waitForDiscordConfirmation() {
   for (let attempt = 1; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
     const askResponse = await discordApi(
@@ -129,19 +129,21 @@ async function waitForDiscordConfirmation() {
     const deadline = Date.now() + CONFIRM_RETRY_MIN * 60 * 1000;
 
     while (Date.now() < deadline) {
+      // ponytail: poll de 15s = até 15s de atraso pra detectar reação;
+      // baixar o intervalo se precisar de resposta mais imediata
       await delay(15000);
 
       if (await hasHumanReaction(askMessage.id, CANCEL_EMOJI)) {
-        return false;
+        return "cancelled";
       }
 
       if (await hasHumanReaction(askMessage.id, CONFIRM_EMOJI)) {
-        return true;
+        return "confirmed";
       }
     }
   }
 
-  return false;
+  return "timeout";
 }
 
 (async () => {
@@ -168,10 +170,15 @@ async function waitForDiscordConfirmation() {
 
   console.log("Pedindo confirmação no Discord...");
 
-  const confirmed = await waitForDiscordConfirmation();
+  const confirmation = await waitForDiscordConfirmation();
 
-  if (!confirmed) {
-    console.log("Não confirmado. Encerrando.");
+  if (confirmation !== "confirmed") {
+    const message =
+      confirmation === "cancelled"
+        ? "🚫 Ponto NÃO registrado. Cancelado pelo usuário."
+        : "⚠️ Ponto NÃO registrado. Confirmação não recebida a tempo.";
+
+    console.log(message);
 
     try {
       await fetch(WEBHOOK_URL, {
@@ -180,7 +187,7 @@ async function waitForDiscordConfirmation() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          content: "⚠️ Ponto NÃO registrado. Confirmação não recebida a tempo.",
+          content: message,
         }),
       });
     } catch (err) {
