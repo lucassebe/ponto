@@ -112,8 +112,9 @@ WEBHOOK_URL=
 
 Antes de bater o ponto, o script manda mensagem no canal pedindo confirmação
 (reagir com ✅). Se ninguém reagir, pergunta de novo a cada `CONFIRM_RETRY_MIN`
-minutos, até `CONFIRM_MAX_ATTEMPTS` vezes. Se já bateu `DAILY_PONTO_LIMIT`
-pontos hoje (olhando o próprio histórico do canal), nem pergunta mais.
+minutos, até `CONFIRM_MAX_ATTEMPTS` vezes. Trava de 4 marcações/dia,
+por janela (olhando o próprio histórico do canal): 1 até 11h, 2 entre 12h e
+14h, 1 depois das 15h. Se a janela já está cheia, nem pergunta.
 
 Precisa de um bot (webhook sozinho não lê reação):
 
@@ -132,7 +133,6 @@ DISCORD_BOT_TOKEN=
 DISCORD_CHANNEL_ID=
 CONFIRM_RETRY_MIN=3
 CONFIRM_MAX_ATTEMPTS=3
-DAILY_PONTO_LIMIT=4
 ```
 
 ---

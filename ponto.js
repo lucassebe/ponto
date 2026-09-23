@@ -43,7 +43,13 @@ const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const DISCORD_CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const CONFIRM_RETRY_MIN = parseInt(process.env.CONFIRM_RETRY_MIN || "3");
 const CONFIRM_MAX_ATTEMPTS = parseInt(process.env.CONFIRM_MAX_ATTEMPTS || "3");
-const DAILY_PONTO_LIMIT = parseInt(process.env.DAILY_PONTO_LIMIT || "4");
+// Máximo de pontos por janela do dia: 1 de manhã, 2 no almoço (12h-14h),
+// 1 no fim do dia. Soma 4.
+const WINDOWS = [
+  { name: "manhã", untilHour: 11, limit: 1 },
+  { name: "almoço", untilHour: 14, limit: 2 },
+  { name: "saída", untilHour: 23, limit: 1 },
+];
 const CONFIRM_EMOJI = "✅";
 const CANCEL_EMOJI = "❌";
 const SUCCESS_PREFIX = "✅ Ponto registrado";
@@ -68,8 +74,22 @@ function isToday(isoTimestamp) {
   );
 }
 
-// Conta quantos pontos já foram batidos hoje, olhando o histórico do canal.
-async function countTodaySuccesses() {
+function windowOf(date) {
+  const hour = parseInt(
+    date.toLocaleString("en-US", {
+      timeZone: "America/Sao_Paulo",
+      hour: "numeric",
+      hourCycle: "h23",
+    }),
+  );
+
+  return WINDOWS.find((w) => hour <= w.untilHour);
+}
+
+const ORDINALS = ["PRIMEIRA", "SEGUNDA", "TERCEIRA", "QUARTA"];
+
+// Datas dos pontos já batidos hoje, olhando o histórico do canal.
+async function todaySuccesses() {
   const response = await discordApi(
     `/channels/${DISCORD_CHANNEL_ID}/messages?limit=50`,
   );
@@ -77,15 +97,17 @@ async function countTodaySuccesses() {
   const messages = await response.json();
 
   if (!Array.isArray(messages)) {
-    return 0;
+    return [];
   }
 
-  return messages.filter(
-    (msg) =>
-      msg.author?.bot &&
-      msg.content?.startsWith(SUCCESS_PREFIX) &&
-      isToday(msg.timestamp),
-  ).length;
+  return messages
+    .filter(
+      (msg) =>
+        msg.author?.bot &&
+        msg.content?.startsWith(SUCCESS_PREFIX) &&
+        isToday(msg.timestamp),
+    )
+    .map((msg) => new Date(msg.timestamp));
 }
 
 async function hasHumanReaction(messageId, emoji) {
@@ -102,14 +124,14 @@ async function hasHumanReaction(messageId, emoji) {
 // CONFIRM_RETRY_MIN minutos, até CONFIRM_MAX_ATTEMPTS vezes. Retorna
 // "confirmed" assim que alguém reagir com ✅, "cancelled" na hora se alguém
 // reagir com ❌, ou "timeout" depois de esgotar as tentativas sem resposta.
-async function waitForDiscordConfirmation() {
+async function waitForDiscordConfirmation(label) {
   for (let attempt = 1; attempt <= CONFIRM_MAX_ATTEMPTS; attempt++) {
     const askResponse = await discordApi(
       `/channels/${DISCORD_CHANNEL_ID}/messages`,
       {
         method: "POST",
         body: JSON.stringify({
-          content: `🕒 Bater ponto agora? Reaja com ${CONFIRM_EMOJI} pra confirmar ou ${CANCEL_EMOJI} pra cancelar. Expira em ${CONFIRM_RETRY_MIN} min. (tentativa ${attempt}/${CONFIRM_MAX_ATTEMPTS})`,
+          content: `🕒 ${label}: bater ponto agora? Reaja com ${CONFIRM_EMOJI} pra confirmar ou ${CANCEL_EMOJI} pra cancelar. Expira em ${CONFIRM_RETRY_MIN} min. (tentativa ${attempt}/${CONFIRM_MAX_ATTEMPTS})`,
         }),
       },
     );
@@ -162,15 +184,19 @@ async function waitForDiscordConfirmation() {
     return;
   }
 
-  if ((await countTodaySuccesses()) >= DAILY_PONTO_LIMIT) {
-    console.log(`Já bati ${DAILY_PONTO_LIMIT}x hoje. Encerrando.`);
+  const slot = windowOf(new Date());
+  const done = await todaySuccesses();
+  const label = `${ORDINALS[done.length]} MARCAÇÃO DO DIA`;
+
+  if (done.filter((d) => windowOf(d) === slot).length >= slot.limit) {
+    console.log(`Já bati ${slot.limit}x na janela ${slot.name}. Encerrando.`);
 
     return;
   }
 
   console.log("Pedindo confirmação no Discord...");
 
-  const confirmation = await waitForDiscordConfirmation();
+  const confirmation = await waitForDiscordConfirmation(label);
 
   if (confirmation !== "confirmed") {
     const message =
@@ -317,7 +343,7 @@ async function waitForDiscordConfirmation() {
     form.append(
       "payload_json",
       JSON.stringify({
-        content: `✅ Ponto registrado com sucesso
+        content: `✅ Ponto registrado com sucesso — ${label}
 
 🕒 ${new Date().toLocaleString("pt-BR")}
 
