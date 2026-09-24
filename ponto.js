@@ -1,3 +1,6 @@
+// Servidor do Actions roda em UTC; força horário de Brasília em todo Date.
+process.env.TZ = "America/Sao_Paulo";
+
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
@@ -52,7 +55,6 @@ const WINDOWS = [
 ];
 const CONFIRM_EMOJI = "✅";
 const CANCEL_EMOJI = "❌";
-const SUCCESS_PREFIX = "✅ Ponto registrado";
 
 async function discordApi(endpoint, options = {}) {
   return fetch(`https://discord.com/api/v10${endpoint}`, {
@@ -65,49 +67,107 @@ async function discordApi(endpoint, options = {}) {
   });
 }
 
-function isToday(isoTimestamp) {
-  const opts = { timeZone: "America/Sao_Paulo" };
-
-  return (
-    new Date(isoTimestamp).toLocaleDateString("pt-BR", opts) ===
-    new Date().toLocaleDateString("pt-BR", opts)
-  );
-}
-
-function windowOf(date) {
-  const hour = parseInt(
-    date.toLocaleString("en-US", {
-      timeZone: "America/Sao_Paulo",
-      hour: "numeric",
-      hourCycle: "h23",
-    }),
-  );
-
+function windowOf(hour) {
   return WINDOWS.find((w) => hour <= w.untilHour);
 }
 
 const ORDINALS = ["PRIMEIRA", "SEGUNDA", "TERCEIRA", "QUARTA"];
 
-// Datas dos pontos já batidos hoje, olhando o histórico do canal.
-async function todaySuccesses() {
-  const response = await discordApi(
-    `/channels/${DISCORD_CHANNEL_ID}/messages?limit=50`,
-  );
+async function openSystem() {
+  const browser = await chromium.launch({
+    headless: true,
+  });
 
-  const messages = await response.json();
+  const context = await browser.newContext({
+    geolocation: {
+      latitude,
+      longitude,
+    },
+    permissions: ["geolocation"],
+    locale: "pt-BR",
 
-  if (!Array.isArray(messages)) {
-    return [];
+    userAgent:
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+
+    viewport: {
+      width: 1366,
+      height: 768,
+    },
+  });
+
+  await context.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", {
+      get: () => undefined,
+    });
+
+    Object.defineProperty(navigator, "platform", {
+      get: () => "Win32",
+    });
+
+    Object.defineProperty(navigator, "vendor", {
+      get: () => "Google Inc.",
+    });
+
+    Object.defineProperty(navigator, "languages", {
+      get: () => ["pt-BR", "pt"],
+    });
+  });
+
+  const page = await context.newPage();
+
+  try {
+    await login(page);
+  } catch (err) {
+    await browser.close();
+
+    throw err;
   }
 
-  return messages
-    .filter(
-      (msg) =>
-        msg.author?.bot &&
-        msg.content?.startsWith(SUCCESS_PREFIX) &&
-        isToday(msg.timestamp),
-    )
-    .map((msg) => new Date(msg.timestamp));
+  return { browser, page };
+}
+
+async function login(page) {
+  console.log("Abrindo sistema...");
+
+  await page.goto(
+    "https://app.atecsoftwares.com.br/09192042000146/AtecSoftWeb.dll/m",
+    {
+      waitUntil: "networkidle",
+      timeout: 60000,
+    },
+  );
+
+  console.log("Fazendo login...");
+
+  await page.locator('input[name="O44"]').fill(CPF);
+
+  await page.locator('input[name="O48"]').fill(SENHA);
+
+  await page.keyboard.press("Enter");
+
+  console.log("Esperando menu...");
+
+  await page.waitForTimeout(4000);
+}
+
+// Horas das marcações já feitas hoje, lidas da tela "Marcações" do sistema
+// (linhas no formato "08:27:57 | -3.78,-38.49").
+async function todayMarkHours() {
+  const { browser, page } = await openSystem();
+
+  try {
+    await page.getByText("Marcações", { exact: true }).click();
+
+    await page.waitForTimeout(3000);
+
+    const text = await page.locator("body").innerText();
+
+    return [...text.matchAll(/^(\d{2}):\d{2}:\d{2} \|/gm)].map((m) =>
+      parseInt(m[1]),
+    );
+  } finally {
+    await browser.close();
+  }
 }
 
 async function hasHumanReaction(messageId, emoji) {
@@ -184,11 +244,39 @@ async function waitForDiscordConfirmation(label) {
     return;
   }
 
-  const slot = windowOf(new Date());
-  const done = await todaySuccesses();
+  const nowHour = parseInt(
+    new Date().toLocaleString("en-US", {
+      timeZone: "America/Sao_Paulo",
+      hour: "numeric",
+      hourCycle: "h23",
+    }),
+  );
+  const slot = windowOf(nowHour);
+  let done;
+
+  try {
+    done = await todayMarkHours();
+  } catch (err) {
+    console.error("ERRO ao ler marcações:", err);
+
+    await fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: `❌ ERRO AO LER MARCAÇÕES DO DIA
+
+${err.message}`,
+      }),
+    });
+
+    return;
+  }
+
   const label = `${ORDINALS[done.length]} MARCAÇÃO DO DIA`;
 
-  if (done.filter((d) => windowOf(d) === slot).length >= slot.limit) {
+  if (done.filter((h) => windowOf(h) === slot).length >= slot.limit) {
     console.log(`Já bati ${slot.limit}x na janela ${slot.name}. Encerrando.`);
 
     return;
@@ -223,69 +311,12 @@ async function waitForDiscordConfirmation(label) {
     return;
   }
 
-  const browser = await chromium.launch({
-    headless: true,
-  });
-
-  const context = await browser.newContext({
-    geolocation: {
-      latitude,
-      longitude,
-    },
-    permissions: ["geolocation"],
-    locale: "pt-BR",
-
-    userAgent:
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
-
-    viewport: {
-      width: 1366,
-      height: 768,
-    },
-  });
-
-  await context.addInitScript(() => {
-    Object.defineProperty(navigator, "webdriver", {
-      get: () => undefined,
-    });
-
-    Object.defineProperty(navigator, "platform", {
-      get: () => "Win32",
-    });
-
-    Object.defineProperty(navigator, "vendor", {
-      get: () => "Google Inc.",
-    });
-
-    Object.defineProperty(navigator, "languages", {
-      get: () => ["pt-BR", "pt"],
-    });
-  });
-
-  const page = await context.newPage();
+  let browser;
 
   try {
-    console.log("Abrindo sistema...");
+    let page;
 
-    await page.goto(
-      "https://app.atecsoftwares.com.br/09192042000146/AtecSoftWeb.dll/m",
-      {
-        waitUntil: "networkidle",
-        timeout: 60000,
-      },
-    );
-
-    console.log("Fazendo login...");
-
-    await page.locator('input[name="O44"]').fill(CPF);
-
-    await page.locator('input[name="O48"]').fill(SENHA);
-
-    await page.keyboard.press("Enter");
-
-    console.log("Esperando menu...");
-
-    await page.waitForTimeout(4000);
+    ({ browser, page } = await openSystem());
 
     console.log("Abrindo tela de marcação...");
 
@@ -376,6 +407,6 @@ ${err.message}`,
       }),
     });
   } finally {
-    await browser.close();
+    await browser?.close();
   }
 })();
